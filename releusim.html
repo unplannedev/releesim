@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ReleuSim — editor & simulator scheme cu relee</title>
+<style>
+  :root{
+    --paper:#F7F9FB; --ink:#1E3A5F; --ink-soft:#5B7288; --grid:#DFE9F1; --line:#C7D6E3;
+    --hot:#D64541; --neu:#2E7DD1; --short:#C724B1; --ok:#1F8A4C; --warn:#E0A010;
+    --mono:ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
+  html,body{height:100%; margin:0; overflow:hidden;}
+  body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif; color:var(--ink); background:var(--paper); display:flex; flex-direction:column;}
+
+  #topbar{display:flex; align-items:center; gap:6px; padding:7px 8px; background:#fff; border-bottom:2px solid var(--ink); overflow-x:auto;}
+  .title{font-family:var(--mono); font-weight:700; font-size:13px; letter-spacing:.4px; white-space:nowrap;}
+  .title small{display:block; font-size:8px; color:var(--ink-soft); font-weight:400; letter-spacing:1px;}
+  button.tb{font-family:var(--mono); font-size:12px; font-weight:700; border:1.5px solid var(--ink); background:#fff; color:var(--ink); border-radius:6px; padding:7px 9px; cursor:pointer; white-space:nowrap;}
+  button.tb:active{transform:translateY(1px);}
+  #playBtn.playing{background:var(--ok); border-color:var(--ok); color:#fff;}
+  .spacer{flex:1;}
+
+  #main{flex:1; display:flex; min-height:0;}
+  /* ---------- sidebar (categorii, ca SimuRelay) ---------- */
+  #sidebar{width:170px; flex:0 0 170px; background:#fff; border-right:2px solid var(--ink); overflow-y:auto; overflow-x:hidden; transition:margin-left .2s;}
+  #sidebar.hidden{margin-left:-172px;}
+  .tools{display:flex; gap:4px; padding:6px; position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line); z-index:2;}
+  .tools button{flex:1; font-family:var(--mono); font-size:11px; border:1.5px solid var(--ink); border-radius:5px; background:#fff; padding:7px 2px; cursor:pointer;}
+  .tools button.active{background:var(--ink); color:#fff;}
+  .cat{border-bottom:1px solid var(--line);}
+  .cat>h4{margin:0; font-family:var(--mono); font-size:11px; letter-spacing:.3px; padding:9px 8px; cursor:pointer; display:flex; align-items:center; gap:6px; color:var(--ink); background:#F0F5F9;}
+  .cat>h4 .tw{font-size:9px; color:var(--ink-soft); margin-left:auto; transition:transform .15s;}
+  .cat.open>h4 .tw{transform:rotate(90deg);}
+  .cat .items{display:none; padding:5px 6px 8px;}
+  .cat.open .items{display:grid; grid-template-columns:1fr 1fr; gap:5px;}
+  .items button{font-family:var(--mono); font-size:9.5px; line-height:1.15; border:1.4px solid var(--line); border-radius:5px; background:#fff; color:var(--ink); padding:5px 3px 4px; cursor:pointer; text-align:center; display:flex; flex-direction:column; align-items:center; gap:3px; min-height:46px; justify-content:center;}
+  .items button.active{border-color:var(--warn); background:#FFF7E6;}
+  .items button svg{width:30px; height:26px;}
+  .items button span{font-size:8.5px;}
+
+  #status{font-family:var(--mono); font-size:11px; padding:4px 10px; color:var(--ink-soft); background:#fff; border-bottom:1px solid var(--grid); min-height:22px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #status.alert{color:#fff; background:var(--short); font-weight:700; animation:blink .6s step-end infinite;}
+  @keyframes blink{50%{opacity:.5}}
+
+  #stage{flex:1; position:relative; touch-action:none; overflow:hidden; min-width:0;}
+  svg#scene{position:absolute; inset:0; width:100%; height:100%; display:block;}
+
+  .wire{fill:none; stroke:var(--ink); stroke-width:2; stroke-linecap:round;}
+  .wire.hot{stroke:var(--hot); stroke-width:2.6; stroke-dasharray:7 5; animation:flow .7s linear infinite;}
+  .wire.neu{stroke:var(--neu); stroke-width:2.6;}
+  .wire.shorted{stroke:var(--short); stroke-width:3.4; stroke-dasharray:4 4; animation:flow .25s linear infinite;}
+  .wirehit{fill:none; stroke:rgba(0,0,0,0); stroke-width:16; cursor:pointer;}
+  .wire.sel{stroke:var(--warn) !important;}
+  @keyframes flow{to{stroke-dashoffset:-12}}
+  @media (prefers-reduced-motion:reduce){.wire.hot,.wire.shorted{animation:none;stroke-dasharray:none;}}
+
+  .sym{stroke:var(--ink); stroke-width:2; fill:none; stroke-linecap:round;}
+  .symf{fill:var(--ink);}
+  .mech{stroke:var(--ink-soft); stroke-width:1.3; stroke-dasharray:3 3; fill:none;}
+  .term{fill:#fff; stroke:var(--ink); stroke-width:1.7;}
+  .term.wiresrc{fill:var(--warn); stroke:var(--warn);}
+  .lbl{font-family:var(--mono); font-size:11px; fill:var(--ink); font-weight:600;}
+  .lbl.small{font-size:9px; fill:var(--ink-soft); font-weight:400;}
+  .selbox{fill:none; stroke:var(--warn); stroke-width:1.5; stroke-dasharray:5 4;}
+  .box{fill:#fff; stroke:var(--ink); stroke-width:2;}
+  g.energ .box.driven{fill:var(--ok); stroke:var(--ok);}
+  g.energ .box.driven + .btxt{fill:#fff;}
+  .btxt{font-family:var(--mono); font-size:10px; font-weight:700; fill:var(--ink);}
+  .lampglow{fill:#FFD34D; opacity:0;} g.energ .lampglow{opacity:1;}
+  .lamphalo{fill:#FFD34D; opacity:0; filter:blur(2px);} g.energ .lamphalo{opacity:.55;}
+  .spinner{transform-box:fill-box; transform-origin:center;}
+  g.energ .spinner{animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .srcL{fill:var(--hot);} .srcN{fill:var(--neu);} .srcP{fill:var(--warn);}
+
+  #props{position:absolute; left:8px; right:8px; bottom:8px; background:#fff; border:2px solid var(--ink); border-radius:8px; padding:9px; display:none; gap:7px; align-items:center; flex-wrap:wrap; box-shadow:3px 3px 0 rgba(30,58,95,.15); font-family:var(--mono); font-size:12px; z-index:5;}
+  #props.show{display:flex;}
+  #props input{font-family:var(--mono); font-size:13px; border:1.5px solid var(--ink); border-radius:4px; padding:5px 7px; width:66px;}
+  #props .del{border-color:var(--hot); color:var(--hot);}
+
+  #modal{position:fixed; inset:0; background:rgba(30,58,95,.45); display:none; align-items:center; justify-content:center; z-index:20; padding:16px;}
+  #modal.show{display:flex;}
+  #modalCard{background:#fff; border:2px solid var(--ink); border-radius:10px; max-width:440px; width:100%; max-height:82vh; overflow-y:auto; padding:16px;}
+  #modalCard h3{margin:0 0 10px; font-size:16px;}
+  #modalCard p,#modalCard li{font-size:13px; line-height:1.5;}
+  #modalCard button{display:block; width:100%; margin:6px 0; font-family:var(--mono); font-size:13px; border:1.5px solid var(--ink); border-radius:6px; background:#fff; padding:10px; cursor:pointer; text-align:left;}
+  #modalCard .close{background:var(--ink); color:#fff; text-align:center;}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="title">ReleuSim<small>simulator relee</small></div>
+  <button class="tb" id="sideBtn">☰</button>
+  <button class="tb" id="playBtn">▶ SIMULARE</button>
+  <button class="tb" id="undoBtn">↶</button>
+  <button class="tb" id="zoomIn">＋</button>
+  <button class="tb" id="zoomOut">−</button>
+  <button class="tb" id="fitBtn">⛶</button>
+  <div class="spacer"></div>
+  <button class="tb" id="menuBtn">Meniu</button>
+</div>
+<div id="status"></div>
+
+<div id="main">
+  <aside id="sidebar">
+    <div class="tools">
+      <button data-tool="sel" class="active">☝ Sel</button>
+      <button data-tool="wiret">⌇ Fir</button>
+      <button data-tool="node">● Nod</button>
+    </div>
+    <div id="cats"></div>
+  </aside>
+  <div id="stage">
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="props"></div>
+  </div>
+</div>
+
+<div id="modal"><div id="modalCard"></div></div>
+
+<script>
+(function(){
+'use strict';
+const GRID=20, TH=28; // terminal half-height
+
+/* ============================================================
+   DEFINIȚII COMPONENTE  (setul complet SimuRelay)
+   kind: source | contact | button | switch | contactor | thermal | coil | load | passive | node
+   form: no|nc|com|ncno|poles|throw|src|load1|load2|load3|load6
+============================================================ */
+const DEF = {
+  node:{cat:null, name:'Nod', kind:'node', form:'node'},
+
+  /* --- Alimentare --- */
+  N :{cat:'pow', name:'N', kind:'source', form:'src', rails:['N']},
+  L1:{cat:'pow', name:'L1', kind:'source', form:'src', rails:['L1']},
+  L2:{cat:'pow', name:'L2', kind:'source', form:'src', rails:['L2']},
+  L3:{cat:'pow', name:'L3', kind:'source', form:'src', rails:['L3']},
+  L :{cat:'pow', name:'L',  kind:'source', form:'src', rails:['L1']},
+  L123 :{cat:'pow', name:'L1L2L3',  kind:'source', form:'src', rails:['L1','L2','L3']},
+  L123N:{cat:'pow', name:'L1L2L3N', kind:'source', form:'src', rails:['L1','L2','L3','N']},
+  gen3 :{cat:'pow', name:'Gen. 3~',kind:'source', form:'src', rails:['L1','L2','L3']},
+  phseq:{cat:'pow', name:'Ordine faze', kind:'passive', form:'poles', poles:3},
+
+  /* --- Relee și bobine --- */
+  coil_relay:{cat:'coil', name:'Bobină releu', kind:'coil', form:'load2', lp:'K'},
+  coil:{cat:'coil', name:'Bobină', kind:'coil', form:'load2', lp:'K'},           // alias vechi
+  coil_cont:{cat:'coil', name:'Bobină contactor', kind:'coil', form:'load2', lp:'KM'},
+  impulse:{cat:'coil', name:'Releu de impuls', kind:'load', drive:'impulse', form:'load2', lp:'KI'},
+  ondelay:{cat:'coil', name:'Releu temp. la anclanșare', kind:'load', drive:'ondelay', form:'load2', lp:'T', delay:5},
+  timer:{cat:'coil', name:'Timer (on-delay)', kind:'load', drive:'ondelay', form:'load2', lp:'T', delay:5}, // alias
+  offdelay:{cat:'coil', name:'Releu temp. la declanșare', kind:'load', drive:'offdelay', form:'load2', lp:'T', delay:5},
+  onoffdelay:{cat:'coil', name:'Releu temp. on/off', kind:'load', drive:'onoffdelay', form:'load2', lp:'T', delay:5},
+  flasher:{cat:'coil', name:'Releu intermitent', kind:'load', drive:'flasher', form:'load2', lp:'KF', delay:1},
+
+  /* --- Contacte (comandate de bobine) --- */
+  contact_no:{cat:'con', name:'Contact NO', kind:'contact', form:'no', driveOff:'relay', def:'K1'},
+  contact_nc:{cat:'con', name:'Contact NC', kind:'contact', form:'nc', driveOff:'relay', def:'K1'},
+  contact_com:{cat:'con', name:'Contact COM', kind:'contact', form:'com', driveOff:'relay', def:'K1'},
+  contact_ncno:{cat:'con', name:'Contact NC+NO', kind:'contact', form:'ncno', driveOff:'relay', def:'K1'},
+  tcon_no:{cat:'con', name:'Contact NO temp.', kind:'contact', form:'no', driveOff:'relay', def:'T1'}, // alias
+  tcon_nc:{cat:'con', name:'Contact NC temp.', kind:'contact', form:'nc', driveOff:'relay', def:'T1'}, // alias
+
+  /* --- Butoane --- */
+  btn_no:{cat:'btn', name:'Buton NO', kind:'button', form:'no', lp:'S'},
+  btn_nc:{cat:'btn', name:'Buton NC', kind:'button', form:'nc', lp:'S'},
+  btn_com:{cat:'btn', name:'Buton COM', kind:'button', form:'com', lp:'S'},
+  btn_ncno:{cat:'btn', name:'Buton NC+NO', kind:'button', form:'ncno', lp:'S'},
+
+  /* --- Întrerupătoare --- */
+  sw:{cat:'sw', name:'Întrerupător', kind:'switch', form:'no', lp:'Q', on:false}, // alias vechi
+  sw_no:{cat:'sw', name:'Întrer. NO', kind:'switch', form:'no', lp:'Q', on:false},
+  sw_nc:{cat:'sw', name:'Întrer. NC', kind:'switch', form:'nc', lp:'Q', on:false},
+  sw_com:{cat:'sw', name:'Întrer. COM', kind:'switch', form:'com', lp:'Q', on:false},
+  sw_ncno:{cat:'sw', name:'Întrer. NC+NO', kind:'switch', form:'ncno', lp:'Q', on:false},
+  sw3_io2:{cat:'sw', name:'3 poz. I-O-II', kind:'switch', form:'throw', throws:2, mid:true, lp:'Q', pos:1},
+  sw3_i23:{cat:'sw', name:'3 poz. I-II-III', kind:'switch', form:'throw', throws:3, mid:false, lp:'Q', pos:0},
+
+  /* --- Buton de urgență (cu reținere) --- */
+  emg_no:{cat:'emg', name:'Urgență NO', kind:'button', drive:'latch', form:'no', lp:'SB', on:false},
+  emg_nc:{cat:'emg', name:'Urgență NC', kind:'button', drive:'latch', form:'nc', lp:'SB', on:false},
+  emg_com:{cat:'emg', name:'Urgență COM', kind:'button', drive:'latch', form:'com', lp:'SB', on:false},
+  emg_ncno:{cat:'emg', name:'Urgență NC+NO', kind:'button', drive:'latch', form:'ncno', lp:'SB', on:false},
+
+  /* --- Limitatoare de cursă --- */
+  lim_no:{cat:'lim', name:'Limitator NO', kind:'button', form:'no', lp:'SQ'},
+  lim_nc:{cat:'lim', name:'Limitator NC', kind:'button', form:'nc', lp:'SQ'},
+  lim_com:{cat:'lim', name:'Limitator COM', kind:'button', form:'com', lp:'SQ'},
+  lim_ncno:{cat:'lim', name:'Limitator NC+NO', kind:'button', form:'ncno', lp:'SQ'},
+
+  /* --- Contactoare de forță (comandate de bobină) --- */
+  contactor2:{cat:'ctc', name:'Contactor 2P', kind:'contactor', form:'poles', poles:2, def:'KM1'},
+  contactor3:{cat:'ctc', name:'Contactor 3P', kind:'contactor', form:'poles', poles:3, def:'KM1'},
+  contactor4:{cat:'ctc', name:'Contactor 4P', kind:'contactor', form:'poles', poles:4, def:'KM1'},
+
+  /* --- Separatoare --- */
+  isolator1:{cat:'iso', name:'Separator 1P', kind:'switch', form:'poles', poles:1, lp:'QS', on:true},
+  isolator2:{cat:'iso', name:'Separator 2P', kind:'switch', form:'poles', poles:2, lp:'QS', on:true},
+  isolator3:{cat:'iso', name:'Separator 3P', kind:'switch', form:'poles', poles:3, lp:'QS', on:true},
+  isolator4:{cat:'iso', name:'Separator 4P', kind:'switch', form:'poles', poles:4, lp:'QS', on:true},
+
+  /* --- Disjunctoare --- */
+  cb1:{cat:'cb', name:'Disjunctor 1P', kind:'switch', form:'poles', poles:1, lp:'QF', on:true, breaker:true},
+  cb2:{cat:'cb', name:'Disjunctor 2P', kind:'switch', form:'poles', poles:2, lp:'QF', on:true, breaker:true},
+  cb3:{cat:'cb', name:'Disjunctor 3P', kind:'switch', form:'poles', poles:3, lp:'QF', on:true, breaker:true},
+  cb4:{cat:'cb', name:'Disjunctor 4P', kind:'switch', form:'poles', poles:4, lp:'QF', on:true, breaker:true},
+  magneto2:{cat:'cb', name:'Disj. magneto 2P', kind:'switch', form:'poles', poles:2, lp:'QM', on:true, breaker:true},
+  magneto3:{cat:'cb', name:'Disj. magneto 3P', kind:'switch', form:'poles', poles:3, lp:'QM', on:true, breaker:true},
+
+  /* --- Siguranțe fuzibile (întrerupător-siguranță) --- */
+  fuse1:{cat:'fus', name:'Sig. fuz. 1P', kind:'switch', form:'poles', poles:1, lp:'F', on:true, fuse:true},
+  fuse2:{cat:'fus', name:'Sig. fuz. 2P', kind:'switch', form:'poles', poles:2, lp:'F', on:true, fuse:true},
+  fuse3:{cat:'fus', name:'Sig. fuz. 3P', kind:'switch', form:'poles', poles:3, lp:'F', on:true, fuse:true},
+  fuse4:{cat:'fus', name:'Sig. fuz. 4P', kind:'switch', form:'poles', poles:4, lp:'F', on:true, fuse:true},
+
+  /* --- Releu termic --- */
+  thermal2:{cat:'th', name:'Releu termic 2P', kind:'thermal', form:'poles', poles:2, lp:'F', tripped:false},
+  thermal3:{cat:'th', name:'Releu termic 3P', kind:'thermal', form:'poles', poles:3, lp:'F', tripped:false},
+
+  /* --- Motoare --- */
+  motor:{cat:'mot', name:'Motor', kind:'load', form:'load2', lp:'M'}, // alias vechi (2 borne)
+  motor3:{cat:'mot', name:'Motor 3~', kind:'load', form:'load3', lp:'M'},
+  motor3_6:{cat:'mot', name:'Motor 3~ 6b', kind:'load', form:'load6', lp:'M'},
+  motor1:{cat:'mot', name:'Motor 1~', kind:'load', form:'load2', lp:'M'},
+
+  /* --- Lămpi --- */
+  lamp:{cat:'lmp', name:'Lampă', kind:'load', form:'load2', lp:'H'},
+  lamp_flash:{cat:'lmp', name:'Lampă intermit.', kind:'load', drive:'lampflash', form:'load2', lp:'H', delay:.6},
+};
+
+const CATS = [
+  ['pow','⚡ Alimentare',   ['N','L1','L2','L3','L123','L123N','gen3','phseq']],
+  ['coil','◻ Relee & bobine',['coil_relay','coil_cont','impulse','ondelay','offdelay','onoffdelay','flasher']],
+  ['con','⊣ Contacte',      ['contact_no','contact_nc','contact_com','contact_ncno']],
+  ['btn','⊙ Butoane',       ['btn_no','btn_nc','btn_com','btn_ncno']],
+  ['sw','⇄ Întrerupătoare', ['sw_no','sw_nc','sw_com','sw_ncno','sw3_io2','sw3_i23']],
+  ['emg','⛔ Urgență',       ['emg_no','emg_nc','emg_com','emg_ncno']],
+  ['lim','⌐ Limitatoare',   ['lim_no','lim_nc','lim_com','lim_ncno']],
+  ['ctc','▤ Contactoare',   ['contactor2','contactor3','contactor4']],
+  ['iso','⑃ Separatoare',   ['isolator1','isolator2','isolator3','isolator4']],
+  ['cb','◧ Disjunctoare',   ['cb1','cb2','cb3','cb4','magneto2','magneto3']],
+  ['fus','▯ Sig. fuzibile', ['fuse1','fuse2','fuse3','fuse4']],
+  ['th','♨ Releu termic',   ['thermal2','thermal3']],
+  ['mot','Ⓜ Motoare',       ['motor3','motor3_6','motor1']],
+  ['lmp','✲ Lămpi',         ['lamp','lamp_flash']],
+];
+
+const LOADKINDS = new Set(['coil','load']);
+
+/* ============================================================
+   TERMINALE
+============================================================ */
+function terms(t){
+  const T=DEF[t];
+  switch(T.form){
+    case 'node': return [[0,0]];
+    case 'src': return T.rails.map((_,i)=>[i*24,0]);
+    case 'no': case 'nc': return [[0,-TH],[0,TH]];
+    case 'com': return [[0,-TH],[-16,TH],[16,TH]];
+    case 'ncno': return [[-18,-TH],[-18,TH],[18,-TH],[18,TH]];
+    case 'throw': { const a=[[0,-TH]]; const n=T.throws; const span=(n-1)*20;
+      for(let i=0;i<n;i++) a.push([-span/2+i*20, TH]); return a; }
+    case 'poles': { const a=[]; for(let i=0;i<T.poles;i++){a.push([i*30,-TH]);a.push([i*30,TH]);} return a; }
+    case 'load1': return [[0,-TH]];
+    case 'load2': return [[0,-TH],[0,TH]];
+    case 'load3': return [[-24,-TH],[0,-TH],[24,-TH]];
+    case 'load6': return [[-24,-TH],[0,-TH],[24,-TH],[-24,TH],[0,TH],[24,TH]];
+    default: return [[0,-TH],[0,TH]];
+  }
+}
+
+/* ============================================================
+   STARE
+============================================================ */
+let comps=[], wires=[], seq=1;
+let mode='edit', tool='sel', selId=null, selWire=null, wireSrc=null;
+let view={x:0,y:0,s:1}, undoStack=[];
+let pressed=new Set(), act=new Map(), rt=new Map(), sim=null, simTimer=null, blinkPhase=false;
+
+const svg=document.getElementById('scene'), statusEl=document.getElementById('status'), propsEl=document.getElementById('props');
+const byId=id=>comps.find(c=>c.id===id);
+const snap=v=>Math.round(v/GRID)*GRID;
+function nextLabel(p){let n=1;const re=new RegExp('^'+p+'(\\d+)$');comps.forEach(c=>{const m=(c.label||'').match(re);if(m)n=Math.max(n,+m[1]+1);});return p+n;}
+function pushUndo(){undoStack.push(JSON.stringify({comps,wires,seq}));if(undoStack.length>60)undoStack.shift();}
+function undo(){const s=undoStack.pop();if(!s){setStatus('Nimic de anulat.');return;}const o=JSON.parse(s);comps=o.comps;wires=o.wires;seq=o.seq;selId=selWire=null;hideProps();render();}
+function setStatus(t,al){statusEl.textContent=t;statusEl.classList.toggle('alert',!!al);}
+
+/* ============================================================
+   COMPORTAMENT (conducție)
+============================================================ */
+function actuated(c){
+  const T=DEF[c.t];
+  const drv = T.drive || T.driveOff;
+  if(T.kind==='contact') return !!act.get(c.label);
+  if(T.kind==='button'){ if(T.drive==='latch') return !!c.on; return pressed.has(c.id); }
+  if(T.kind==='switch') return !!c.on;
+  return false;
+}
+function condPairs(c){
+  const T=DEF[c.t];
+  switch(T.kind){
+    case 'passive': { const p=[]; for(let i=0;i<T.poles;i++)p.push([2*i,2*i+1]); return p; }
+    case 'thermal': { if(c.tripped) return []; const p=[]; for(let i=0;i<T.poles;i++)p.push([2*i,2*i+1]); return p; }
+    case 'contactor': { if(!act.get(c.label)) return []; const p=[]; for(let i=0;i<T.poles;i++)p.push([2*i,2*i+1]); return p; }
+    default: break;
+  }
+  const a=actuated(c);
+  switch(T.form){
+    case 'no': return a?[[0,1]]:[];
+    case 'nc': return a?[]:[[0,1]];
+    case 'com': return a?[[0,2]]:[[0,1]];
+    case 'ncno': return a?[[2,3]]:[[0,1]];
+    case 'poles':{ if(!a) return []; const p=[]; for(let i=0;i<T.poles;i++)p.push([2*i,2*i+1]); return p; }
+    case 'throw':{ const n=T.throws; const pos=c.pos|0;
+      if(T.mid && pos===Math.floor(n/2)) return []; // poziția de mijloc = deschis (I-O-II)
+      // pos 0..n-1 -> COM(0) la borna (pos+1)
+      const idx = (T.mid? (pos===0?1:(pos===2?2:0)) : pos+1);
+      return idx?[[0,idx]]:[];
+    }
+    default: return [];
+  }
+}
+
+/* ============================================================
+   SIMULARE (rețele pe bare / rails)
+============================================================ */
+function key(c,i){return c.id+':'+i;}
+function buildGraph(){
+  const parent=new Map();
+  const find=x=>{let r=x;while(parent.get(r)!==r)r=parent.get(r);while(parent.get(x)!==r){const n=parent.get(x);parent.set(x,r);x=n;}return r;};
+  const add=x=>{if(!parent.has(x))parent.set(x,x);};
+  const uni=(a,b)=>{add(a);add(b);parent.set(find(a),find(b));};
+  comps.forEach(c=>terms(c.t).forEach((_,i)=>add(key(c,i))));
+  wires.forEach(w=>uni(w.a,w.b));
+  comps.forEach(c=>condPairs(c).forEach(([i,j])=>uni(key(c,i),key(c,j))));
+  return {find};
+}
+function computeSim(){
+  const {find}=buildGraph();
+  const railsAt=new Map(); // root -> Set(rails)
+  comps.forEach(c=>{ if(DEF[c.t].kind==='source'){ DEF[c.t].rails.forEach((r,i)=>{ const root=find(key(c,i)); if(!railsAt.has(root))railsAt.set(root,new Set()); railsAt.get(root).add(r); }); } });
+  const setOf=k=>railsAt.get(find(k))||null;
+  // scurtcircuit: un nod atinge ≥2 bare
+  let short=false; for(const s of railsAt.values()) if(s.size>=2){short=true;break;}
+  const loadsOn=new Set(), energLabels=new Map();
+  const hot=new Set(), neu=new Set();
+  // marcaj fire hot/neu pentru animație
+  comps.forEach(c=>{ if(DEF[c.t].kind==='source'){ DEF[c.t].rails.forEach((r,i)=>{}); } });
+  comps.forEach(c=>{
+    const T=DEF[c.t];
+    if(LOADKINDS.has(T.kind)){
+      const ts=terms(c.t).map((_,i)=>setOf(key(c,i)));
+      // potențial diferit între oricare două borne
+      let on=false;
+      for(let i=0;i<ts.length&&!on;i++) for(let j=i+1;j<ts.length;j++){
+        if(ts[i]&&ts[j]){ for(const r of ts[i]) if(!ts[j].has(r)){on=true;break;} if(!on) for(const r of ts[j]) if(!ts[i].has(r)){on=true;break;} }
+        if(on)break;
+      }
+      if(on){ loadsOn.add(c.id); if(T.kind==='coil'||T.drive) energLabels.set(c.label, on); }
+      else if(T.kind==='coil'||T.drive){ if(!energLabels.has(c.label)) energLabels.set(c.label,false); }
+    }
+  });
+  // clase hot/neu (pentru culoarea firelor): un terminal e "hot" dacă atinge o bară de fază, "neu" dacă atinge N
+  const termClass=new Map();
+  comps.forEach(c=>terms(c.t).forEach((_,i)=>{ const s=setOf(key(c,i)); if(!s)return; let h=false,n=false; s.forEach(r=>{ if(r==='N')n=true; else h=true;}); termClass.set(key(c,i),{h,n}); }));
+  return {find,setOf,short,loadsOn,energLabels,termClass};
+}
+function stepRelays(dt){
+  // energizare instantanee (fixed point pe contacte)
+  let s;
+  for(let it=0; it<40; it++){
+    s=computeSim();
+    let changed=false;
+    // relee instantanee (bobine simple + contactoare)
+    comps.forEach(c=>{ const T=DEF[c.t];
+      if(T.kind==='coil'){ const on=s.loadsOn.has(c.id); if(!!act.get(c.label)!==on){act.set(c.label,on);changed=true;} }
+    });
+    if(!changed) break;
+  }
+  // relee temporizate / speciale (o singură dată per tick)
+  comps.forEach(c=>{ const T=DEF[c.t]; if(T.kind!=='load'||!T.drive) return;
+    const on=s.loadsOn.has(c.id); let r=rt.get(c.id); if(!r){r={t:0,out:false,prev:false};rt.set(c.id,r);}
+    switch(T.drive){
+      case 'ondelay': if(on){r.t+=dt; if(r.t>=c.delay)r.out=true;} else {r.t=0;r.out=false;} break;
+      case 'offdelay': if(on){r.out=true;r.t=0;} else if(r.out){r.t+=dt; if(r.t>=c.delay)r.out=false;} break;
+      case 'onoffdelay': if(on){r.t+=dt; if(r.t>=c.delay)r.out=true;} else if(r.out){r.t+=dt; if(r.t>=2*c.delay)r.out=false;} else {r.t=0;} break;
+      case 'impulse': if(on&&!r.prev){r.out=!r.out;} r.prev=on; break;
+      case 'flasher': if(on){r.t+=dt; if(r.t>=c.delay){r.t=0;r.out=!r.out;}} else {r.out=false;r.t=0;} break;
+      case 'lampflash': if(on){r.t+=dt; if(r.t>=c.delay){r.t=0;r.out=!r.out;}} else r.out=false; break;
+      default: r.out=on;
+    }
+    if(T.kind==='load'&&(T.drive&&T.drive!=='lampflash')) act.set(c.label, r.out);
+  });
+  // reevaluare finală după relee temporizate
+  s=computeSim();
+  sim=s;
+  if(s.short) setStatus('⚠ SCURTCIRCUIT între bare! Verifică schema.',true);
+  else setStatus('Simulare activă — apasă butoanele/întrerupătoarele din schemă.');
+}
+
+/* ============================================================
+   DESEN
+============================================================ */
+function esc(s){return String(s??'').replace(/[<>&"]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m]));}
+function lead(x1,y1,x2,y2){return `<line class="sym" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;}
+function blade(x,cy,closed){ return closed?`<line class="sym" x1="${x}" y1="${cy+9}" x2="${x}" y2="${cy-10}"/>`:`<line class="sym" x1="${x}" y1="${cy+9}" x2="${x+9}" y2="${cy-12}"/>`; }
+
+function drawContact(c,actd){
+  const T=DEF[c.t];
+  if(T.form==='no'||T.form==='nc'){
+    let s=lead(0,-TH,0,-9)+lead(0,9,0,TH)+blade(0,0,T.form==='no'?actd:!actd);
+    if(T.form==='nc') s+=`<line class="sym" x1="0" y1="-9" x2="8" y2="-9" style="stroke-width:1.4"/>`;
+    return s;
+  }
+  if(T.form==='com'){
+    const closedNO=actd;
+    let s=lead(0,-TH,0,-9)+lead(-16,9,-16,TH)+lead(16,9,16,TH);
+    s+= closedNO? `<line class="sym" x1="0" y1="-9" x2="16" y2="9"/>` : `<line class="sym" x1="0" y1="-9" x2="-16" y2="9"/>`;
+    s+=`<line class="sym" x1="-16" y1="9" x2="-8" y2="9" style="stroke-width:1.4"/>`;
+    return s;
+  }
+  if(T.form==='ncno'){
+    // NC pereche stânga (0,1), NO pereche dreapta (2,3)
+    let s=lead(-18,-TH,-18,-9)+lead(-18,9,-18,TH)+blade(-18,0,!actd)+`<line class="sym" x1="-18" y1="-9" x2="-10" y2="-9" style="stroke-width:1.4"/>`;
+    s+=lead(18,-TH,18,-9)+lead(18,9,18,TH)+blade(18,0,actd);
+    return s;
+  }
+  return '';
+}
+function drawPoles(c,closed,mech){
+  const T=DEF[c.t]; let s='';
+  for(let i=0;i<T.poles;i++){ const x=i*30; s+=lead(x,-TH,x,-9)+lead(x,9,x,TH)+blade(x,0,closed); }
+  if(mech && T.poles>1) s+=`<line class="mech" x1="4" y1="-2" x2="${(T.poles-1)*30-4}" y2="-2"/>`;
+  return s;
+}
+function drawComp(c){
+  const T=DEF[c.t];
+  const st = mode==='play'? {energ: sim&&sim.loadsOn.has(c.id), actd: actuated(c)} : {energ:false, actd:restActuated(c)};
+  let inner='', lab='';
+  switch(T.kind){
+    case 'node': inner=`<circle cx="0" cy="0" r="4" class="symf"/>`; break;
+    case 'source':{
+      const rails=T.rails; inner=rails.map((r,i)=>{ const x=i*24; const cls=r==='N'?'srcN':'srcL';
+        return lead(x,0,x,-14)+`<circle cx="${x}" cy="-20" r="6" class="${cls}"/><text class="lbl small" x="${x}" y="-30" text-anchor="middle">${r}</text>`;}).join('');
+      lab=`<text class="lbl" x="${(rails.length-1)*24+14}" y="4">${esc(T.name)}</text>`; break;
+    }
+    case 'passive': inner=drawPoles(c,true,true)+`<rect class="box" x="-14" y="-9" width="28" height="18" rx="2" fill="#fff" fill-opacity="0"/><text class="lbl small" x="0" y="3" text-anchor="middle">φ</text>`; break;
+    case 'contact': inner=drawContact(c,st.actd); break;
+    case 'button':{
+      inner=drawContact(c,st.actd);
+      const pressed_ = st.actd;
+      if(T.drive==='latch') inner+=`<circle cx="-24" cy="0" r="7" class="sym" fill="${pressed_?'var(--hot)':'#fff'}"/><line class="sym" x1="-24" y1="0" x2="-9" y2="0" stroke-dasharray="3 3" style="stroke-width:1.2"/>`;
+      else inner+=`<rect class="sym" x="-27" y="-5" width="9" height="9" fill="${pressed_?'var(--ok)':'#fff'}"/><line class="sym" x1="-18" y1="0" x2="${T.form==='ncno'?-28:-2}" y2="0" stroke-dasharray="3 3" style="stroke-width:1.2"/>`;
+      break;
+    }
+    case 'switch':{
+      if(T.form==='throw'){ inner=drawThrow(c); }
+      else if(T.form==='poles'){ inner=drawPoles(c,st.actd,true); if(T.breaker) inner+=`<rect class="sym" x="-9" y="-6" width="12" height="12" rx="2" fill="none"/>`; if(T.fuse) inner+=`<rect class="sym" x="-4" y="-9" width="8" height="18" rx="1"/>`; }
+      else { inner=drawContact(c,st.actd)+`<circle cx="0" cy="12" r="2.5" class="symf"/>`; }
+      break;
+    }
+    case 'contactor': inner=drawPoles(c, !!(sim&&act.get(c.label)) , true)+`<rect class="sym" x="-8" y="-7" width="16" height="14" rx="7" fill="none" style="stroke-width:1.4"/>`; break;
+    case 'thermal': inner=drawPoles(c, !c.tripped, true)+`<rect class="sym" x="-8" y="-8" width="16" height="16" rx="2" fill="${c.tripped?'#fde5e2':'#fff'}"/><path class="sym" d="M -5 4 q 3 -8 5 0 q 2 8 5 0" style="stroke-width:1.3"/>`; break;
+    case 'coil':{
+      inner=lead(0,-TH,0,-11)+lead(0,11,0,TH)+`<rect class="box driven" x="-15" y="-11" width="30" height="22" rx="2"/><text class="btxt" x="0" y="4" text-anchor="middle">${esc(c.label||'')}</text>`;
+      break;
+    }
+    case 'load':{
+      if(T.form==='load2' && (c.t==='lamp'||c.t==='lamp_flash')){
+        const flashOn = c.t==='lamp_flash' ? (rt.get(c.id)?.out) : true;
+        inner=lead(0,-TH,0,-11)+lead(0,11,0,TH)+`<circle class="lamphalo" cx="0" cy="0" r="17"/><circle class="lampglow" cx="0" cy="0" r="11" style="${st.energ&&flashOn?'':'opacity:0'}"/><circle class="sym" cx="0" cy="0" r="11"/><line class="sym" x1="-7.5" y1="-7.5" x2="7.5" y2="7.5"/><line class="sym" x1="7.5" y1="-7.5" x2="-7.5" y2="7.5"/>`;
+      } else if(T.form==='load2' && (c.t==='motor'||c.t==='motor1')){
+        inner=lead(0,-TH,0,-15)+lead(0,15,0,TH)+`<circle class="sym" cx="0" cy="0" r="15"/><g class="spinner">${lead(0,0,0,-11)}</g><text class="btxt" x="0" y="4" text-anchor="middle">M</text><text class="lbl small" x="18" y="4">${c.t==='motor1'?'1~':''}</text>`;
+      } else if(T.form==='load3'||T.form==='load6'){
+        const tp=terms(c.t); inner=tp.map(t=>lead(t[0],t[1],t[0]*0.5,t[1]*0.4)).join('')+`<circle class="sym" cx="0" cy="0" r="18"/><g class="spinner">${lead(0,0,0,-13)}</g><text class="btxt" x="0" y="0" text-anchor="middle">M</text><text class="btxt" x="0" y="12" text-anchor="middle" style="font-size:9px">3~</text>`;
+      } else {
+        // relee (coil-like loads: impulse/delays/flasher)
+        inner=lead(0,-TH,0,-11)+lead(0,11,0,TH)+`<rect class="box driven" x="-15" y="-11" width="30" height="22" rx="2"/><text class="btxt" x="0" y="4" text-anchor="middle">${esc(c.label||'')}</text>`;
+        const sym={impulse:'↻',ondelay:'⏱',offdelay:'⏱',onoffdelay:'⏱',flasher:'⚡'}[T.drive]||'';
+        let sub=sym; if(T.drive&&T.drive.indexOf('delay')>=0){ const r=rt.get(c.id); const left=(mode==='play'&&sim&&sim.loadsOn.has(c.id)&&r&&!r.out)?Math.max(0,c.delay-r.t).toFixed(1)+'s':c.delay+'s'; sub=sym+' '+left; }
+        inner+=`<text class="lbl small" x="18" y="14">${sub}</text>`;
+      }
+      break;
+    }
+  }
+  // label pentru contacte/butoane/switch/contactor/thermal
+  if(c.label && ['contact','button','switch','contactor','thermal'].includes(T.kind)){
+    const T2=DEF[c.t]; const lx = (T2.form==='poles')?((T2.poles-1)*30+14):(T2.form==='ncno'?30:14);
+    lab=`<text class="lbl" x="${lx}" y="4">${esc(c.label)}</text>`;
+  }
+  let ts='';
+  terms(c.t).forEach((o,i)=>{ const k=key(c,i); ts+=`<circle class="term ${wireSrc===k?'wiresrc':''}" data-term="${k}" cx="${o[0]}" cy="${o[1]}" r="4.5"/>`; });
+  const sb=(selId===c.id)?`<rect class="selbox" x="-34" y="-40" width="68" height="80" rx="6"/>`:'';
+  return `<g class="${st.energ?'energ':''}" data-cid="${c.id}" transform="translate(${c.x},${c.y}) rotate(${c.r||0})">${sb}${inner}${lab}${ts}</g>`;
+}
+function drawThrow(c){
+  const T=DEF[c.t], n=T.throws, span=(n-1)*20;
+  let s=lead(0,-TH,0,-9);
+  for(let i=0;i<n;i++){ const x=-span/2+i*20; s+=lead(x,9,x,TH); }
+  const pos=c.pos|0;
+  if(!(T.mid&&pos===Math.floor(n/2))){ const idx=(T.mid?(pos===0?0:1):pos); const x=-span/2+idx*20; s+=`<line class="sym" x1="0" y1="-9" x2="${x}" y2="9"/>`; }
+  s+=`<text class="lbl small" x="0" y="-14" text-anchor="middle">${T.mid?['I','O','II'][pos]:['I','II','III'][pos]}</text>`;
+  return s;
+}
+function restActuated(c){ // aspect în editare (repaus)
+  const T=DEF[c.t];
+  if(T.kind==='switch') return !!c.on;
+  if(T.kind==='button'&&T.drive==='latch') return !!c.on;
+  return false; // NO deschis, NC afișat închis prin logica din drawContact
+}
+function routeWire(w){ const p1=tk(w.a),p2=tk(w.b); if(!p1||!p2)return'';
+  if(p1.x===p2.x||p1.y===p2.y)return `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`;
+  return `M ${p1.x} ${p1.y} L ${p1.x} ${p2.y} L ${p2.x} ${p2.y}`; }
+function tk(k){const[cid,ti]=k.split(':');const c=byId(+cid);if(!c)return null;const o=terms(c.t)[+ti];if(!o)return null;
+  const rr=((c.r||0)%360+360)%360; let x=o[0],y=o[1]; if(rr===90){[x,y]=[-y,x];}else if(rr===180){[x,y]=[-x,-y];}else if(rr===270){[x,y]=[y,-x];}
+  return {x:c.x+x,y:c.y+y};}
+function wireClass(w){ if(mode!=='play'||!sim)return selWire===w.id?'wire sel':'wire';
+  const ca=sim.termClass.get(w.a),cb=sim.termClass.get(w.b); const h=(ca&&ca.h)||(cb&&cb.h), n=(ca&&ca.n)||(cb&&cb.n);
+  let c='wire'; if(h&&n)c+=' shorted'; else if(h)c+=' hot'; else if(n)c+=' neu'; if(selWire===w.id)c+=' sel'; return c; }
+function render(){
+  const r=svg.getBoundingClientRect();
+  svg.setAttribute('viewBox',`${view.x} ${view.y} ${r.width/view.s} ${r.height/view.s}`);
+  let s=`<defs><pattern id="gp" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M ${GRID} 0 L 0 0 0 ${GRID}" fill="none" stroke="var(--grid)" stroke-width="1"/></pattern></defs><rect x="-9000" y="-9000" width="18000" height="18000" fill="url(#gp)"/>`;
+  wires.forEach(w=>{const d=routeWire(w);s+=`<path class="${wireClass(w)}" d="${d}"/><path class="wirehit" data-wid="${w.id}" d="${d}"/>`;});
+  comps.forEach(c=>s+=drawComp(c));
+  svg.innerHTML=s;
+}
+
+/* ============================================================
+   SIDEBAR
+============================================================ */
+const catsEl=document.getElementById('cats');
+function miniSVG(t){ // simbol mic pentru buton
+  const g=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  const T=DEF[t]; const saveMode=mode; mode='edit';
+  const tmp={id:-1,t,x:0,y:0,r:0}; if(T.on!==undefined)tmp.on=T.on; if(T.pos!==undefined)tmp.pos=T.pos; if(T.delay!==undefined)tmp.delay=T.delay; if(T.tripped!==undefined)tmp.tripped=T.tripped;
+  tmp.label = T.def||''; 
+  const inner=drawComp(tmp).replace(/data-cid="-1"/,'');
+  mode=saveMode;
+  return `<svg viewBox="-40 -36 80 72">${inner.replace(/<circle class="term[^>]*>/g,'')}</svg>`;
+}
+CATS.forEach(([id,title,items])=>{
+  const div=document.createElement('div'); div.className='cat'; div.dataset.cat=id;
+  div.innerHTML=`<h4>${title}<span class="tw">▶</span></h4><div class="items"></div>`;
+  const box=div.querySelector('.items');
+  items.forEach(t=>{ const b=document.createElement('button'); b.dataset.tool=t;
+    b.innerHTML=miniSVG(t)+`<span>${esc(DEF[t].name)}</span>`;
+    b.addEventListener('click',()=>selectTool(t,b));
+    box.appendChild(b); });
+  div.querySelector('h4').addEventListener('click',()=>{ const open=div.classList.contains('open');
+    catsEl.querySelectorAll('.cat').forEach(x=>x.classList.remove('open')); if(!open)div.classList.add('open'); });
+  catsEl.appendChild(div);
+});
+document.querySelectorAll('.tools button').forEach(b=>b.addEventListener('click',()=>selectTool(b.dataset.tool,b)));
+function selectTool(t,btn){
+  tool=t; wireSrc=null; selId=selWire=null; hideProps();
+  document.querySelectorAll('.tools button,.items button').forEach(x=>x.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  const hints={sel:'Selectare: atinge/trage un element. Trage fundalul = deplasare planșă.',wiret:'Fir: atinge un terminal (cerculeț), apoi al doilea.',node:'Nod: punct de ramificație.'};
+  setStatus(hints[t]||('Plasează: '+DEF[t].name+' — atinge planșa.'));
+  render();
+}
+document.getElementById('sideBtn').onclick=()=>document.getElementById('sidebar').classList.toggle('hidden');
+
+/* ============================================================
+   PROPS
+============================================================ */
+function showProps(){
+  const c=byId(selId); if(!c&&selWire==null){hideProps();return;}
+  let h='';
+  if(c){ const T=DEF[c.t]; h+=`<b>${esc(T.name)}</b>`;
+    if(T.kind!=='source'&&c.t!=='node') h+=`<label>et. <input id="pLabel" value="${esc(c.label||'')}"></label>`;
+    if(c.delay!==undefined) h+=`<label>t <input id="pDelay" type="number" min="0.2" step="0.2" value="${c.delay}"> s</label>`;
+    if(T.kind==='switch'||(T.kind==='button'&&T.drive==='latch')) h+=`<button class="tb" id="pOn">${c.on?'starea: ÎNCHIS':'starea: DESCHIS'}</button>`;
+    if(T.kind==='thermal') h+=`<button class="tb" id="pTrip">${c.tripped?'DECLANȘAT':'armat'}</button>`;
+    h+=`<button class="tb" id="pRot">⟳</button>`;
+  } else h+=`<b>Fir</b>`;
+  h+=`<button class="tb del" id="pDel">🗑</button><button class="tb" id="pClose">✕</button>`;
+  propsEl.innerHTML=h; propsEl.classList.add('show');
+  const lab=document.getElementById('pLabel'); if(lab){let p=false;lab.addEventListener('focus',()=>{if(!p){pushUndo();p=true;}});lab.addEventListener('input',()=>{c.label=lab.value.trim();render();});}
+  const del=document.getElementById('pDelay'); if(del)del.addEventListener('change',()=>{pushUndo();c.delay=Math.max(.2,+del.value||1);render();});
+  const on=document.getElementById('pOn'); if(on)on.addEventListener('click',()=>{pushUndo();c.on=!c.on;showProps();render();});
+  const tr=document.getElementById('pTrip'); if(tr)tr.addEventListener('click',()=>{pushUndo();c.tripped=!c.tripped;showProps();render();});
+  const ro=document.getElementById('pRot'); if(ro)ro.addEventListener('click',()=>{pushUndo();c.r=((c.r||0)+90)%360;render();});
+  document.getElementById('pDel').addEventListener('click',()=>{pushUndo(); if(c){wires=wires.filter(w=>!w.a.startsWith(c.id+':')&&!w.b.startsWith(c.id+':'));comps=comps.filter(x=>x.id!==c.id);} else wires=wires.filter(w=>w.id!==selWire); selId=selWire=null;hideProps();render();});
+  document.getElementById('pClose').addEventListener('click',()=>{selId=selWire=null;hideProps();render();});
+}
+function hideProps(){propsEl.classList.remove('show');propsEl.innerHTML='';}
+
+/* ============================================================
+   INTERACȚIUNE POINTER
+============================================================ */
+const pointers=new Map(); let drag=null;
+function toWorld(e){const pt=new DOMPoint(e.clientX,e.clientY);const m=svg.getScreenCTM();if(!m)return{x:0,y:0};const p=pt.matrixTransform(m.inverse());return{x:p.x,y:p.y};}
+svg.addEventListener('pointerdown',e=>{
+  svg.setPointerCapture(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size===2){const[a,b]=[...pointers.values()];drag={kind:'pinch',d0:Math.hypot(a.x-b.x,a.y-b.y),s0:view.s,mid:{x:(a.x+b.x)/2,y:(a.y+b.y)/2},v0:{...view}};return;}
+  const w=toWorld(e);
+  const termEl=e.target.closest&&e.target.closest('[data-term]');
+  const compEl=e.target.closest&&e.target.closest('[data-cid]');
+  const wireEl=e.target.closest&&e.target.closest('[data-wid]');
+  if(mode==='play'){
+    if(compEl){const c=byId(+compEl.dataset.cid);const T=DEF[c.t];
+      if(T.kind==='button'){ if(T.drive==='latch'){c.on=!c.on;stepRelays(0);render();return;} pressed.add(c.id);stepRelays(0);render();drag={kind:'press',cid:c.id};return; }
+      if(T.kind==='switch'){ drag={kind:'tap',cid:c.id,sx:e.clientX,sy:e.clientY,act:()=>{ if(T.form==='throw'){c.pos=((c.pos|0)+1)%T.throws;} else c.on=!c.on; }};return; }
+      if(T.kind==='thermal'){ drag={kind:'tap',cid:c.id,sx:e.clientX,sy:e.clientY,act:()=>{c.tripped=!c.tripped;}};return; }
+    }
+    drag={kind:'pan',sx:e.clientX,sy:e.clientY,v0:{...view}};return;
+  }
+  if(tool==='wiret'){ if(termEl){const k=termEl.dataset.term;
+      if(!wireSrc){wireSrc=k;setStatus('Acum atinge al doilea terminal.');render();}
+      else if(wireSrc!==k){pushUndo();wires.push({id:seq++,a:wireSrc,b:k});wireSrc=null;setStatus('Fir creat.');render();}
+      else{wireSrc=null;render();} return; }
+    if(wireSrc){wireSrc=null;setStatus('Anulat.');render();return;} }
+  if(tool!=='sel'&&tool!=='wiret'&&!compEl&&!termEl){ pushUndo();
+    const T=DEF[tool]; const c={id:seq++,t:tool,x:snap(w.x),y:snap(w.y),r:0};
+    if(T.def)c.label=T.def; else if(T.lp)c.label=nextLabel(T.lp);
+    if(T.on!==undefined)c.on=T.on; if(T.pos!==undefined)c.pos=T.pos; if(T.delay!==undefined)c.delay=T.delay; if(T.tripped!==undefined)c.tripped=T.tripped;
+    comps.push(c); selId=c.id; showProps(); render(); return; }
+  if(compEl){const c=byId(+compEl.dataset.cid);selId=c.id;selWire=null;showProps();render();drag={kind:'comp',cid:c.id,ox:w.x-c.x,oy:w.y-c.y,moved:false};return;}
+  if(wireEl){selWire=+wireEl.dataset.wid;selId=null;showProps();render();return;}
+  selId=selWire=null;hideProps();render();drag={kind:'pan',sx:e.clientX,sy:e.clientY,v0:{...view}};
+});
+svg.addEventListener('pointermove',e=>{
+  if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(!drag)return;
+  if(drag.kind==='pinch'&&pointers.size>=2){const[a,b]=[...pointers.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);const ns=Math.min(3,Math.max(.3,drag.s0*d/drag.d0));const r=svg.getBoundingClientRect();const wx=drag.v0.x+(drag.mid.x-r.left)/drag.s0,wy=drag.v0.y+(drag.mid.y-r.top)/drag.s0;view.s=ns;view.x=wx-(drag.mid.x-r.left)/ns;view.y=wy-(drag.mid.y-r.top)/ns;render();return;}
+  if(drag.kind==='pan'){view.x=drag.v0.x-(e.clientX-drag.sx)/view.s;view.y=drag.v0.y-(e.clientY-drag.sy)/view.s;render();return;}
+  if(drag.kind==='comp'){const c=byId(drag.cid);if(!c)return;const w=toWorld(e);const nx=snap(w.x-drag.ox),ny=snap(w.y-drag.oy);if(nx!==c.x||ny!==c.y){if(!drag.moved){pushUndo();drag.moved=true;}c.x=nx;c.y=ny;render();}}
+});
+function endP(e){ pointers.delete(e.pointerId); if(!drag)return;
+  if(drag.kind==='press'){pressed.delete(drag.cid);stepRelays(0);render();}
+  if(drag.kind==='tap'){ if(Math.hypot(e.clientX-drag.sx,e.clientY-drag.sy)<12){drag.act();stepRelays(0);render();} }
+  if(pointers.size<2)drag=null; }
+svg.addEventListener('pointerup',endP); svg.addEventListener('pointercancel',endP);
+svg.addEventListener('wheel',e=>{e.preventDefault();const f=e.deltaY<0?1.15:1/1.15;zoomAt(e.clientX,e.clientY,view.s*f);},{passive:false});
+function zoomAt(cx,cy,ns){ns=Math.min(3,Math.max(.3,ns));const r=svg.getBoundingClientRect();const wx=view.x+(cx-r.left)/view.s,wy=view.y+(cy-r.top)/view.s;view.s=ns;view.x=wx-(cx-r.left)/ns;view.y=wy-(cy-r.top)/ns;render();}
+document.getElementById('zoomIn').onclick=()=>{const r=svg.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,view.s*1.25);};
+document.getElementById('zoomOut').onclick=()=>{const r=svg.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,view.s/1.25);};
+document.getElementById('fitBtn').onclick=fit;
+function fit(){ if(!comps.length){view={x:0,y:0,s:1};render();return;}
+  let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9; comps.forEach(c=>{x1=Math.min(x1,c.x-80);y1=Math.min(y1,c.y-80);x2=Math.max(x2,c.x+80);y2=Math.max(y2,c.y+80);});
+  const r=svg.getBoundingClientRect();const s=Math.min(3,Math.max(.3,Math.min(r.width/(x2-x1),r.height/(y2-y1))));
+  view={x:x1-((r.width/s)-(x2-x1))/2,y:y1-((r.height/s)-(y2-y1))/2,s};render(); }
+document.getElementById('undoBtn').onclick=undo;
+document.getElementById('playBtn').onclick=()=>mode==='play'?stopPlay():startPlay();
+
+function startPlay(){
+  if(!comps.some(c=>DEF[c.t].kind==='source')){setStatus('Adaugă cel puțin o sursă (L / N) înainte de simulare.');return;}
+  mode='play';tool='sel';selId=selWire=null;wireSrc=null;hideProps();
+  pressed.clear();act=new Map();rt=new Map();
+  stepRelays(0);
+  const pb=document.getElementById('playBtn');pb.textContent='■ OPREȘTE';pb.classList.add('playing');
+  let last=performance.now(); simTimer=setInterval(()=>{const now=performance.now();stepRelays((now-last)/1000);last=now;render();},100);
+  render();
+}
+function stopPlay(){mode='edit';clearInterval(simTimer);simTimer=null;sim=null;pressed.clear();const pb=document.getElementById('playBtn');pb.textContent='▶ SIMULARE';pb.classList.remove('playing');setStatus('Mod editare.');render();}
+
+/* ============================================================
+   MENIU / EXEMPLE / I/O
+============================================================ */
+const modal=document.getElementById('modal'),modalCard=document.getElementById('modalCard');
+document.getElementById('menuBtn').onclick=()=>{
+  modalCard.innerHTML=`<h3>Meniu</h3>
+    <button id="mEx1">📘 Exemplu: buton + lampă</button>
+    <button id="mEx2">📘 Exemplu: automenținere pornire/oprire</button>
+    <button id="mEx3">📘 Exemplu: stea-triunghi complet</button>
+    <button id="mImp">📂 Importă schemă (.json)</button>
+    <button id="mExp">💾 Exportă schema (.json)</button>
+    <button id="mClr">🗑 Șterge tot</button>
+    <button id="mHelp">❓ Ajutor</button>
+    <button class="close" id="mClose">Închide</button>`;
+  modal.classList.add('show');
+  const load=fn=>{if(mode==='play')stopPlay();pushUndo();fn();modal.classList.remove('show');fit();setStatus('Exemplu încărcat — apasă ▶ SIMULARE.');};
+  document.getElementById('mEx1').onclick=()=>load(exLamp);
+  document.getElementById('mEx2').onclick=()=>load(exHold);
+  document.getElementById('mEx3').onclick=()=>load(exSD);
+  document.getElementById('mImp').onclick=importJSON;
+  document.getElementById('mExp').onclick=exportJSON;
+  document.getElementById('mClr').onclick=()=>{pushUndo();comps=[];wires=[];modal.classList.remove('show');render();};
+  document.getElementById('mHelp').onclick=showHelp;
+  document.getElementById('mClose').onclick=()=>modal.classList.remove('show');
+};
+function showHelp(){modalCard.innerHTML=`<h3>Cum se folosește</h3>
+  <p><b>Categorii (stânga):</b> apasă un titlu de categorie ca să-l deschizi, apoi un simbol ca să-l armezi. Atinge planșa ca să plasezi. Toate componentele SimuRelay sunt aici: alimentare, relee/bobine, contacte, butoane, întrerupătoare, urgență, limitatoare, contactoare, separatoare, disjunctoare, siguranțe, releu termic, motoare, lămpi.</p>
+  <p><b>Legare contacte↔bobine:</b> un Contact/Contactor cu eticheta <b>KM1</b> urmărește bobina cu eticheta <b>KM1</b>. Releele temporizate (on/off-delay) și de impuls comută contactele cu aceeași etichetă.</p>
+  <p><b>Fire:</b> unealta ⌇ Fir → atinge două terminale. Ramifici cu ● Nod.</p>
+  <p><b>Simulare ▶:</b> roșu = fază, albastru = N, mov intermitent = scurtcircuit. Butoanele se apasă (momentan), întrerupătoarele/urgența/termicul comută la atingere.</p>
+  <p><b>Salvare:</b> Export/Import .json (pagina nu reține singură schema).</p>
+  <button class="close" id="mC2">Închide</button>`;document.getElementById('mC2').onclick=()=>modal.classList.remove('show');}
+function exportJSON(){const b=new Blob([JSON.stringify({comps,wires,seq},null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='schema-releusim.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
+function importJSON(){const i=document.createElement('input');i.type='file';i.accept='.json,application/json';i.onchange=()=>{const f=i.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const o=JSON.parse(rd.result);if(!Array.isArray(o.comps)||!Array.isArray(o.wires))throw 0;pushUndo();comps=o.comps;wires=o.wires;seq=o.seq||1000;modal.classList.remove('show');fit();setStatus('Schemă importată.');}catch(_){setStatus('Fișier invalid.');}};rd.readAsText(f);};i.click();}
+
+/* ---- exemple ---- */
+function C(t,x,y,p){const c=Object.assign({id:seq++,t,x,y,r:0},p||{});const T=DEF[t];if(c.label===undefined){if(T.def)c.label=T.def;else if(T.lp)c.label=nextLabel(T.lp);}if(T.on!==undefined&&c.on===undefined)c.on=T.on;if(T.delay!==undefined&&c.delay===undefined)c.delay=T.delay;if(T.pos!==undefined&&c.pos===undefined)c.pos=T.pos;comps.push(c);return c;}
+function W(a,ai,b,bi){wires.push({id:seq++,a:a.id+':'+ai,b:b.id+':'+bi});}
+function exLamp(){comps=[];wires=[];const L=C('L1',100,60),s=C('btn_no',100,150,{label:'S1'}),h=C('lamp',100,270,{label:'H1'}),N=C('N',100,370);W(L,0,s,0);W(s,1,h,0);W(h,1,N,0);}
+function exHold(){comps=[];wires=[];
+  const L=C('L1',100,40),s0=C('btn_nc',100,130,{label:'S0'}),nA=C('node',100,210),s1=C('btn_no',100,290,{label:'S1'}),nB=C('node',100,370),k=C('coil_cont',100,450,{label:'KM1'}),nN=C('node',100,550),N=C('N',100,610);
+  const hold=C('contact_no',210,290,{label:'KM1'}),h=C('lamp',300,450,{label:'H1'});
+  W(L,0,s0,0);W(s0,1,nA,0);W(nA,0,s1,0);W(s1,1,nB,0);W(nB,0,k,0);W(k,1,nN,0);W(nN,0,N,0);W(nA,0,hold,0);W(hold,1,nB,0);W(nB,0,h,0);W(h,1,nN,0);}
+function exSD(){comps=[];wires=[];
+  const L=C('L1',80,40),F0=C('fuse1',80,120,{label:'F0',on:true}),F=C('contact_nc',80,200,{label:'F1'}),s0=C('btn_nc',80,280,{label:'S0'}),nA=C('node',80,360),s1=C('btn_no',80,440,{label:'S1'});
+  const hold=C('contact_no',180,440,{label:'KM1'});
+  const B=[]; for(let i=0;i<5;i++)B.push(C('node',80+i*90,520));
+  const k1=C('coil_cont',80,600,{label:'KM1'});
+  const t1=C('ondelay',260,600,{label:'T1',delay:5});
+  const tnc=C('contact_nc',350,580,{label:'T1'}),k3nc=C('contact_nc',350,660,{label:'KM3'}),k2=C('coil_cont',350,740,{label:'KM2'});
+  const tno=C('contact_no',440,580,{label:'T1'}),k2nc=C('contact_nc',440,660,{label:'KM2'}),k3=C('coil_cont',440,740,{label:'KM3'});
+  const NN=[]; for(let i=0;i<5;i++)NN.push(C('node',80+i*90,820)); const N=C('N',80,890);
+  W(L,0,F0,0);W(F0,1,F,0);W(F,1,s0,0);W(s0,1,nA,0);W(nA,0,s1,0);W(s1,1,B[0],0);W(nA,0,hold,0);W(hold,1,B[1],0);
+  for(let i=0;i<4;i++)W(B[i],0,B[i+1],0);
+  W(B[0],0,k1,0);W(k1,1,NN[0],0);
+  W(B[2],0,t1,0);W(t1,1,NN[2],0);
+  W(B[3],0,tnc,0);W(tnc,1,k3nc,0);W(k3nc,1,k2,0);W(k2,1,NN[3],0);
+  W(B[4],0,tno,0);W(tno,1,k2nc,0);W(k2nc,1,k3,0);W(k3,1,NN[4],0);
+  for(let i=0;i<4;i++)W(NN[i],0,NN[i+1],0);W(NN[0],0,N,0);}
+
+/* ---- boot ---- */
+window.addEventListener('resize',render);
+document.querySelector('.cat[data-cat="pow"]').classList.add('open');
+exHold(); fit();
+setStatus('Gata. Deschide o categorie din stânga sau apasă ▶ SIMULARE (exemplu: ține S1 apăsat).');
+})();
+</script>
+</body>
+</html>
